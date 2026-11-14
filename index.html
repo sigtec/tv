@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV</title>
+<meta name="description" content="Deutsche TV-Livestreams in einer Fernseher-Oberfläche">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<!-- hls.js spielt die HLS-Streams (.m3u8) der Sender im Browser ab -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js"></script>
+<style>
+  :root {
+    --accent: #3fa9f5;
+    --panel: rgba(12, 14, 18, .84);
+    --fg: #f2f4f7;
+    --muted: #9aa3ad;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #000; color: var(--fg);
+    font-family: "Ubuntu", system-ui, sans-serif;
+    cursor: none;
+  }
+  body.mouse { cursor: default; }
+  video {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; background: #000;
+  }
+
+  /* Senderinfo unten links */
+  #osd {
+    position: fixed; left: 4vw; bottom: 6vh;
+    display: flex; align-items: center; gap: 1.6vw;
+    padding: 1.6vh 2.2vw; max-width: 75vw;
+    background: var(--panel); border-radius: 16px;
+    opacity: 0; transition: opacity .35s; pointer-events: none;
+  }
+  #osd.show { opacity: 1; }
+  #osd .num {
+    font-size: 6vh; font-weight: 700; color: var(--accent);
+    min-width: 2.5ch; text-align: right; font-variant-numeric: tabular-nums;
+  }
+  #osd img { height: 7vh; max-width: 14vw; object-fit: contain; }
+  #osd .name { font-size: 4vh; font-weight: 600; line-height: 1.15; }
+  #osd .sub  { font-size: 2.2vh; color: var(--muted); margin-top: .5vh; }
+
+  /* Uhr oben rechts (mit der Senderinfo eingeblendet) */
+  #clock {
+    position: fixed; top: 4vh; right: 4vw;
+    font-size: 4vh; font-weight: 600; font-variant-numeric: tabular-nums;
+    padding: .8vh 1.6vw; background: var(--panel); border-radius: 12px;
+    opacity: 0; transition: opacity .35s; pointer-events: none;
+  }
+  #clock.show { opacity: 1; }
+
+  /* Zifferneingabe */
+  #numentry {
+    position: fixed; top: 4vh; left: 4vw;
+    font-size: 9vh; font-weight: 700; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    padding: .5vh 2vw; background: var(--panel); border-radius: 16px;
+    display: none;
+  }
+
+  /* Lautstärke */
+  #vol {
+    position: fixed; top: 50%; right: 4vw; transform: translateY(-50%);
+    width: 1.6vw; height: 36vh; min-width: 14px;
+    background: var(--panel); border-radius: 12px; padding: 6px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    opacity: 0; transition: opacity .35s; pointer-events: none;
+  }
+  #vol.show { opacity: 1; }
+  #vol .bar { background: var(--accent); border-radius: 8px; width: 100%; }
+  #vol.muted .bar { background: var(--muted); }
+
+  /* Senderliste */
+  #menu {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: min(620px, 42vw);
+    background: var(--panel); backdrop-filter: blur(10px);
+    transform: translateX(-105%); transition: transform .22s ease;
+    display: flex; flex-direction: column;
+  }
+  #menu.open { transform: none; }
+  #menu header {
+    padding: 3vh 1.6vw 1.6vh;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 3.2vh; font-weight: 700;
+  }
+  #menu header small { font-size: 1.8vh; font-weight: 400; color: var(--muted); }
+  #list {
+    list-style: none; margin: 0; padding: 0 0 3vh;
+    overflow-y: auto; flex: 1; scrollbar-width: none;
+  }
+  #list::-webkit-scrollbar { display: none; }
+  #list li {
+    display: flex; align-items: center; gap: 1vw;
+    padding: 1.1vh 1.6vw; font-size: 2.7vh;
+    border-left: 6px solid transparent; cursor: pointer;
+  }
+  #list li .n { width: 3ch; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #list li .logo { width: 5vh; height: 3.2vh; display: flex; justify-content: center; }
+  #list li img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #list li.current .t { color: var(--accent); font-weight: 600; }
+  #list li.sel { background: rgba(255, 255, 255, .13); border-left-color: var(--accent); }
+  #list li.group {
+    font-size: 1.8vh; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .08em; padding-top: 2.2vh; cursor: default;
+  }
+
+  /* Meldungen (Laden, Fehler, Hinweise) */
+  #msg {
+    position: fixed; inset: 0; pointer-events: none;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1.5vh; text-align: center; font-size: 3.4vh; padding: 0 10vw;
+    text-shadow: 0 2px 8px #000;
+  }
+  #msg small { font-size: 2vh; color: var(--muted); }
+
+  /* Tastenhilfe */
+  #help {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: var(--panel); border-radius: 18px; padding: 3vh 3vw;
+    font-size: 2.4vh; display: none;
+  }
+  #help.open { display: block; }
+  #help h2 { margin: 0 0 2vh; font-size: 3vh; }
+  #help table { border-collapse: collapse; }
+  #help td { padding: .6vh 1.2vw; }
+  #help td:first-child { color: var(--accent); font-weight: 600; white-space: nowrap; text-align: right; }
+  #help .credits { margin-top: 2.4vh; font-size: 1.8vh; color: var(--muted); }
+  #help .credits a { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<video id="video" playsinline></video>
+
+<div id="osd"></div>
+<div id="clock"></div>
+<div id="numentry"></div>
+<div id="vol"><div class="bar"></div></div>
+<div id="msg"></div>
+
+<nav id="menu">
+  <header><span>Sender</span><small>↑↓ wählen · Enter · Esc</small></header>
+  <ul id="list"></ul>
+</nav>
+
+<div id="help">
+  <h2>Bedienung</h2>
+  <table>
+    <tr><td>↑ / ↓ &nbsp;·&nbsp; Bild↑ / Bild↓</td><td>Sender weiter / zurück</td></tr>
+    <tr><td>0 – 9</td><td>Sendernummer direkt eingeben</td></tr>
+    <tr><td>Enter &nbsp;·&nbsp; Klick</td><td>Senderliste öffnen</td></tr>
+    <tr><td>Rücktaste</td><td>Zum vorherigen Sender</td></tr>
+    <tr><td>← / →</td><td>Leiser / lauter</td></tr>
+    <tr><td>M</td><td>Ton aus / an</td></tr>
+    <tr><td>I</td><td>Senderinfo anzeigen</td></tr>
+    <tr><td>F &nbsp;·&nbsp; Doppelklick</td><td>Vollbild an / aus</td></tr>
+    <tr><td>R</td><td>Stream neu laden</td></tr>
+    <tr><td>H &nbsp;·&nbsp; ?</td><td>Diese Hilfe</td></tr>
+  </table>
+  <p class="credits">
+    Senderliste: <a href="https://github.com/josxha/german-tv-m3u" target="_blank" rel="noopener">josxha/german-tv-m3u</a>
+    · Wiedergabe: <a href="https://github.com/video-dev/hls.js" target="_blank" rel="noopener">hls.js</a>
+    · Alle Streams gehören den jeweiligen Sendern.
+  </p>
+</div>
+
+<script>
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Einstellungen
+// ---------------------------------------------------------------------------
+const PLAYLIST_URL =
+  new URLSearchParams(location.search).get('m3u') ||
+  'https://raw.githubusercontent.com/josxha/german-tv-m3u/main/german-tv.m3u';
+const OSD_MS = 4000;        // Senderinfo-Einblendung
+const NUM_MS = 1500;        // Wartezeit bei Zifferneingabe
+const MENU_IDLE_MS = 20000; // Senderliste schließt sich nach Inaktivität
+const RETRY_MS = 10000;     // erneuter Versuch bei Netzwerkfehler
+
+// ---------------------------------------------------------------------------
+// Hilfsfunktionen
+// ---------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const video = $('video');
+
+// Speicher für Sender, Lautstärke usw. – darf fehlen, ohne dass etwas bricht
+const store = {
+  get(key, fallback) {
+    try { const v = localStorage.getItem('tv.' + key); return v === null ? fallback : JSON.parse(v); }
+    catch { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem('tv.' + key, JSON.stringify(value)); } catch { /* egal */ }
+  }
+};
+
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------------------------------------------------------------------------
+// Zustand
+// ---------------------------------------------------------------------------
+let channels = [];
+let cur = -1, prev = -1, sel = 0;
+let hls = null, retryTimer = null, recoverCount = 0;
+let osdTimer, volTimer, numTimer, menuTimer, mouseTimer;
+let numBuf = '';
+let needGesture = false;
+let volume = store.get('volume', 0.8);
+let muted = store.get('muted', false);
+let listItems = [];
+
+// ---------------------------------------------------------------------------
+// M3U einlesen
+// ---------------------------------------------------------------------------
+function parseM3U(text) {
+  const out = [];
+  let info = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith('#EXTINF')) {
+      const attrs = {};
+      line.replace(/([\w-]+)="([^"]*)"/g, (_, k, v) => { attrs[k.toLowerCase()] = v; });
+      const rest = line.replace(/([\w-]+)="[^"]*"/g, '');
+      const name = rest.slice(rest.indexOf(',') + 1).trim();
+      info = {
+        name: name || attrs['tvg-name'] || 'Unbenannt',
+        logo: attrs['tvg-logo'] || '',
+        group: attrs['group-title'] || '',
+        id: attrs['tvg-id'] || ''
+      };
+    } else if (line.startsWith('#')) {
+      continue;
+    } else if (info) {
+      out.push({ ...info, url: line });
+      info = null;
+    }
+  }
+  return out;
+}
+
+async function loadPlaylist() {
+  showMsg('Senderliste wird geladen …');
+  let text = null;
+  try {
+    const res = await fetch(PLAYLIST_URL, { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    text = await res.text();
+    store.set('m3u', text);
+  } catch (err) {
+    text = store.get('m3u', null);
+    if (!text) {
+      showMsg('Senderliste konnte nicht geladen werden', String(err));
+      return;
+    }
+  }
+  channels = parseM3U(text);
+  if (!channels.length) { showMsg('Die Senderliste ist leer'); return; }
+  renderList();
+
+  const lastUrl = store.get('channel', null);
+  const start = Math.max(0, channels.findIndex(c => c.url === lastUrl));
+  tune(start);
+}
+
+// ---------------------------------------------------------------------------
+// Wiedergabe
+// ---------------------------------------------------------------------------
+function tune(i) {
+  if (!channels.length) return;
+  i = ((i % channels.length) + channels.length) % channels.length;
+  if (i !== cur) prev = cur;
+  cur = i;
+  store.set('channel', channels[i].url);
+  markCurrent();
+  showOsd();
+  startStream();
+}
+
+function startStream() {
+  const ch = channels[cur];
+  if (!ch) return;
+  clearTimeout(retryTimer);
+  hideMsg();
+  recoverCount = 0;
+
+  if (hls) { hls.destroy(); hls = null; }
+  video.removeAttribute('src');
+  video.load();
+
+  const isHls = /\.m3u8(\?|$)/i.test(ch.url) || !/\.(mp4|webm|ogg|mp3|aac)(\?|$)/i.test(ch.url);
+
+  if (isHls && window.Hls && Hls.isSupported()) {
+    hls = new Hls({ capLevelToPlayerSize: true, maxBufferLength: 20, backBufferLength: 30 });
+    const thisChannel = cur;
+    hls.on(Hls.Events.ERROR, (_, data) => {
+      if (!data.fatal || thisChannel !== cur) return;
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoverCount < 2) {
+        recoverCount++;
+        hls.recoverMediaError();
+        return;
+      }
+      showMsg('Sender nicht verfügbar',
+        data.type === Hls.ErrorTypes.NETWORK_ERROR
+          ? 'Netzwerkfehler – neuer Versuch in ' + (RETRY_MS / 1000) + ' s'
+          : (data.details || 'Unbekannter Fehler'));
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        retryTimer = setTimeout(() => { if (thisChannel === cur) startStream(); }, RETRY_MS);
+      }
+    });
+    hls.loadSource(ch.url);
+    hls.attachMedia(video);
+  } else {
+    // Browser mit eingebauter HLS-Unterstützung oder direkte Videodatei
+    video.src = ch.url;
+  }
+  play();
+}
+
+function play() {
+  video.volume = volume;
+  video.muted = muted;
+  const p = video.play();
+  if (!p) return;
+  p.catch(err => {
+    if (err.name !== 'NotAllowedError') return;
+    // Autoplay mit Ton blockiert: stumm starten, Ton beim ersten Tastendruck
+    needGesture = true;
+    video.muted = true;
+    video.play().catch(() => {});
+    showMsg('', 'Beliebige Taste drücken für Ton und Vollbild');
+  });
+}
+
+video.addEventListener('playing', () => {
+  if (!needGesture) hideMsg();
+  recoverCount = 0;
+});
+video.addEventListener('error', () => {
+  if (hls) return; // Fehler behandelt hls.js
+  showMsg('Sender nicht verfügbar', 'Der Stream kann nicht abgespielt werden');
+});
+video.addEventListener('loadedmetadata', () => {
+  if ($('osd').classList.contains('show')) showOsd();
+});
+
+// ---------------------------------------------------------------------------
+// Einblendungen
+// ---------------------------------------------------------------------------
+function showOsd() {
+  const ch = channels[cur];
+  if (!ch) return;
+  const res = video.videoHeight ? video.videoHeight + 'p' : '';
+  const sub = [ch.group, res].filter(Boolean).join(' · ');
+  $('osd').innerHTML =
+    `<div class="num">${cur + 1}</div>` +
+    (ch.logo ? `<img src="${esc(ch.logo)}" alt="" onerror="this.remove()">` : '') +
+    `<div><div class="name">${esc(ch.name)}</div>` +
+    (sub ? `<div class="sub">${esc(sub)}</div>` : '') + `</div>`;
+  updateClock();
+  $('osd').classList.add('show');
+  $('clock').classList.add('show');
+  clearTimeout(osdTimer);
+  osdTimer = setTimeout(() => {
+    $('osd').classList.remove('show');
+    $('clock').classList.remove('show');
+  }, OSD_MS);
+}
+
+function updateClock() {
+  $('clock').textContent = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function showMsg(title, detail) {
+  $('msg').innerHTML = (title ? `<div>${esc(title)}</div>` : '') + (detail ? `<small>${esc(detail)}</small>` : '');
+  $('msg').style.display = 'flex';
+}
+function hideMsg() { $('msg').style.display = 'none'; }
+
+function showVolume() {
+  const v = $('vol');
+  v.querySelector('.bar').style.height = (muted ? 0 : Math.round(volume * 100)) + '%';
+  v.classList.toggle('muted', muted);
+  v.classList.add('show');
+  clearTimeout(volTimer);
+  volTimer = setTimeout(() => v.classList.remove('show'), 1500);
+}
+
+function changeVolume(delta) {
+  volume = Math.min(1, Math.max(0, Math.round((volume + delta) * 20) / 20));
+  muted = false;
+  video.volume = volume;
+  video.muted = false;
+  store.set('volume', volume);
+  store.set('muted', muted);
+  showVolume();
+}
+
+function toggleMute() {
+  muted = !muted;
+  video.muted = muted;
+  store.set('muted', muted);
+  showVolume();
+}
+
+// ---------------------------------------------------------------------------
+// Zifferneingabe
+// ---------------------------------------------------------------------------
+function enterDigit(d) {
+  numBuf = (numBuf + d).slice(-3);
+  $('numentry').textContent = numBuf;
+  $('numentry').style.display = 'block';
+  clearTimeout(numTimer);
+  if (numBuf.length >= String(channels.length).length) commitNumber();
+  else numTimer = setTimeout(commitNumber, NUM_MS);
+}
+
+function commitNumber() {
+  clearTimeout(numTimer);
+  const n = parseInt(numBuf, 10);
+  numBuf = '';
+  $('numentry').style.display = 'none';
+  if (n >= 1 && n <= channels.length) tune(n - 1);
+}
+
+// ---------------------------------------------------------------------------
+// Senderliste
+// ---------------------------------------------------------------------------
+function renderList() {
+  const ul = $('list');
+  ul.innerHTML = '';
+  listItems = [];
+  const hasGroups = new Set(channels.map(c => c.group)).size > 1;
+  let lastGroup = null;
+  channels.forEach((ch, i) => {
+    if (hasGroups && ch.group !== lastGroup) {
+      lastGroup = ch.group;
+      const g = document.createElement('li');
+      g.className = 'group';
+      g.textContent = ch.group || 'Sonstige';
+      ul.appendChild(g);
+    }
+    const li = document.createElement('li');
+    li.innerHTML =
+      `<span class="n">${i + 1}</span>` +
+      `<span class="logo">${ch.logo ? `<img src="${esc(ch.logo)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>` +
+      `<span class="t">${esc(ch.name)}</span>`;
+    li.addEventListener('click', () => { closeMenu(); tune(i); });
+    li.addEventListener('mouseenter', () => { sel = i; markSel(false); });
+    ul.appendChild(li);
+    listItems.push(li);
+  });
+}
+
+function markCurrent() {
+  listItems.forEach((li, i) => li.classList.toggle('current', i === cur));
+}
+
+function markSel(scroll = true) {
+  listItems.forEach((li, i) => li.classList.toggle('sel', i === sel));
+  if (scroll && listItems[sel]) listItems[sel].scrollIntoView({ block: 'center' });
+  resetMenuTimer();
+}
+
+const menuOpen = () => $('menu').classList.contains('open');
+
+function openMenu() {
+  if (!channels.length) return;
+  sel = Math.max(0, cur);
+  $('menu').classList.add('open');
+  markSel();
+}
+
+function closeMenu() {
+  $('menu').classList.remove('open');
+  clearTimeout(menuTimer);
+}
+
+function resetMenuTimer() {
+  clearTimeout(menuTimer);
+  menuTimer = setTimeout(closeMenu, MENU_IDLE_MS);
+}
+
+function moveSel(delta) {
+  sel = Math.min(channels.length - 1, Math.max(0, sel + delta));
+  markSel();
+}
+
+// ---------------------------------------------------------------------------
+// Vollbild und erste Interaktion
+// ---------------------------------------------------------------------------
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+
+let autoFullscreen = true; // nur beim ersten Tastendruck automatisch ins Vollbild
+
+function firstGesture() {
+  if (autoFullscreen) {
+    autoFullscreen = false;
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+  }
+  if (needGesture) {
+    needGesture = false;
+    video.muted = muted;
+    video.play().catch(() => {});
+    hideMsg();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tastatur
+// ---------------------------------------------------------------------------
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  const wasGesture = needGesture || (autoFullscreen && !document.fullscreenElement);
+  firstGesture();
+  const k = e.key;
+
+  // Hilfe offen: jede Taste schließt sie
+  if ($('help').classList.contains('open')) {
+    $('help').classList.remove('open');
+    e.preventDefault();
+    return;
+  }
+
+  // Senderliste offen
+  if (menuOpen()) {
+    switch (k) {
+      case 'ArrowUp':   moveSel(-1); break;
+      case 'ArrowDown': moveSel(1); break;
+      case 'PageUp':    moveSel(-10); break;
+      case 'PageDown':  moveSel(10); break;
+      case 'Home':      sel = 0; markSel(); break;
+      case 'End':       sel = channels.length - 1; markSel(); break;
+      case 'Enter':
+      case ' ':         closeMenu(); tune(sel); break;
+      case 'Escape':
+      case 'Backspace':
+      case 'ArrowLeft': closeMenu(); break;
+      default:
+        if (/^[0-9]$/.test(k)) { closeMenu(); enterDigit(k); }
+        else return;
+    }
+    e.preventDefault();
+    return;
+  }
+
+  // Normaler Fernsehbetrieb
+  if (/^[0-9]$/.test(k)) { enterDigit(k); e.preventDefault(); return; }
+
+  switch (k) {
+    case 'ArrowUp':
+    case 'PageUp':
+    case 'MediaTrackNext':
+    case 'ChannelUp':          tune(cur + 1); break;
+    case 'ArrowDown':
+    case 'PageDown':
+    case 'MediaTrackPrevious':
+    case 'ChannelDown':        tune(cur - 1); break;
+    case 'ArrowRight':         changeVolume(0.05); break;
+    case 'ArrowLeft':          changeVolume(-0.05); break;
+    case 'Enter':
+      if (numBuf) commitNumber(); else openMenu();
+      break;
+    case ' ':                  openMenu(); break;
+    case 'Backspace':          if (prev >= 0) tune(prev); break;
+    case 'm': case 'M':        toggleMute(); break;
+    case 'i': case 'I':        showOsd(); break;
+    case 'f': case 'F':        if (!wasGesture) toggleFullscreen(); break;
+    case 'r': case 'R':        showOsd(); startStream(); break;
+    case 'h': case 'H': case '?': $('help').classList.add('open'); break;
+    case 'Escape':             break;
+    default: return;
+  }
+  e.preventDefault();
+});
+
+// ---------------------------------------------------------------------------
+// Maus
+// ---------------------------------------------------------------------------
+document.addEventListener('mousemove', () => {
+  document.body.classList.add('mouse');
+  clearTimeout(mouseTimer);
+  mouseTimer = setTimeout(() => document.body.classList.remove('mouse'), 3000);
+});
+
+video.addEventListener('click', () => {
+  firstGesture();
+  if (menuOpen()) closeMenu(); else openMenu();
+});
+video.addEventListener('dblclick', toggleFullscreen);
+$('menu').addEventListener('wheel', resetMenuTimer, { passive: true });
+
+setInterval(updateClock, 15000);
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+if (!window.Hls) {
+  console.warn('hls.js nicht geladen – nutze die eingebaute HLS-Unterstützung des Browsers, falls vorhanden.');
+}
+loadPlaylist();
+
+// Service Worker für die Installation als App (PWA)
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service Worker:', err));
+}
+</script>
+</body>
+</html>
