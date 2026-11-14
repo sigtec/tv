@@ -150,6 +150,64 @@
   #help td:first-child { color: var(--accent); font-weight: 600; white-space: nowrap; text-align: right; }
   #help .credits { margin-top: 2.4vh; font-size: 1.8vh; color: var(--muted); }
   #help .credits a { color: var(--accent); }
+
+  /* Senderliste bearbeiten */
+  #editor {
+    position: fixed; inset: 0; z-index: 5;
+    display: none; flex-direction: column; gap: 14px;
+    padding: 20px 24px; font-size: 15px; cursor: default;
+    background: rgba(8, 10, 14, .96);
+  }
+  #editor.open { display: flex; }
+  #editor .ed-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  #editor h2 { margin: 0; font-size: 22px; }
+  #editor h3 { margin: 0; font-size: 16px; display: flex; justify-content: space-between; align-items: baseline; }
+  #editor h3 small { color: var(--muted); font-weight: 400; font-size: 13px; }
+  #editor .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  #editor .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  #editor section {
+    display: flex; flex-direction: column; gap: 8px; min-height: 0;
+    padding: 12px; border-radius: 12px; background: rgba(255, 255, 255, .04);
+  }
+  #editor .row { display: flex; gap: 8px; }
+  #editor .row > select, #editor .row > input { flex: 1; min-width: 0; }
+  #editor ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+  #editor li { display: flex; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 8px; }
+  #editor li:hover { background: rgba(255, 255, 255, .07); }
+  #editor li .n { width: 3ch; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #editor li .logo { width: 40px; height: 24px; flex-shrink: 0; display: flex; justify-content: center; }
+  #editor li img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #editor li .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #editor li .t small { color: var(--muted); margin-left: 8px; }
+  #editor li.added .t { color: var(--muted); }
+  #editor li.info, #editor li.info:hover { color: var(--muted); padding: 12px 6px; background: none; }
+  #edMyList li[draggable] { cursor: grab; }
+  #editor li.dragging { opacity: .4; }
+  #editor li.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+  #editor li.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+  #editor button, #editor select, #editor input {
+    font: inherit; color: var(--fg);
+    background: rgba(255, 255, 255, .08);
+    border: 1px solid rgba(255, 255, 255, .16); border-radius: 8px; padding: 6px 12px;
+  }
+  #editor select option { background: #1a1d23; }
+  #editor button { cursor: pointer; white-space: nowrap; }
+  #editor button:hover:not(:disabled) { background: rgba(255, 255, 255, .16); }
+  #editor button:disabled { opacity: .35; cursor: default; }
+  #editor button.primary { background: var(--accent); border-color: var(--accent); color: #001726; font-weight: 600; }
+  #editor button.icon { padding: 2px 8px; min-width: 32px; }
+  #editor :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #editor .hint { margin: 0; color: var(--muted); font-size: 13px; }
+  @media (max-width: 800px) {
+    #editor { padding: 12px 16px; }
+    #editor .cols { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  }
+  #menu header button {
+    font: inherit; font-size: 1.8vh; color: var(--fg); cursor: pointer;
+    background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 8px; padding: .4vh .8vw;
+  }
+  #toast { z-index: 10; }
 </style>
 </head>
 <body>
@@ -164,9 +222,48 @@
 <div id="toast"></div>
 
 <nav id="menu">
-  <header><span>Sender</span><small>↑↓ wählen · Enter · Esc</small></header>
+  <header>
+    <span>Sender</span><small>↑↓ wählen · Enter · Esc</small>
+    <button id="menuEdit" title="Senderliste bearbeiten (E)">✎ Bearbeiten</button>
+  </header>
   <ul id="list"></ul>
 </nav>
+
+<div id="editor" role="dialog" aria-label="Senderliste bearbeiten">
+  <div class="ed-head">
+    <h2>Senderliste bearbeiten</h2>
+    <div class="actions">
+      <button id="edImport" title="Sender aus einer M3U-Datei hinzufügen">M3U importieren</button>
+      <button id="edExport" title="Meine Liste als M3U-Datei speichern">M3U exportieren</button>
+      <button id="edClear">Liste leeren</button>
+      <button id="edCancel">Abbrechen</button>
+      <button id="edSave" class="primary">Übernehmen</button>
+      <input id="edFile" type="file" hidden
+        accept=".m3u,.m3u8,audio/x-mpegurl,audio/mpegurl,application/x-mpegurl,application/vnd.apple.mpegurl,text/plain">
+    </div>
+  </div>
+  <div class="cols">
+    <section>
+      <h3>Quellen</h3>
+      <div class="row">
+        <select id="edSource" aria-label="Quelle"></select>
+        <button id="edAddSource" title="Eigene M3U-Senderliste (URL) als Quelle hinzufügen">+ Quelle</button>
+        <button id="edDelSource" title="Diese eigene Quelle entfernen" hidden>Entfernen</button>
+      </div>
+      <div class="row">
+        <input id="edSearch" type="search" placeholder="Sender suchen …" aria-label="Sender suchen">
+        <select id="edGroup" aria-label="Gruppe"></select>
+      </div>
+      <ul id="edSrcList"></ul>
+      <div class="row"><button id="edAddUrl">+ Eigenen Stream eintragen</button></div>
+    </section>
+    <section>
+      <h3>Meine Sender <small id="edCount"></small></h3>
+      <ul id="edMyList"></ul>
+      <p class="hint">Die Reihenfolge ergibt die Sendernummern. Zum Sortieren ziehen oder ↑ ↓ nutzen.</p>
+    </section>
+  </div>
+</div>
 
 <div id="help">
   <h2>Bedienung</h2>
@@ -179,12 +276,16 @@
     <tr><td>M</td><td>Ton aus / an</td></tr>
     <tr><td>U</td><td>Untertitel an / aus</td></tr>
     <tr><td>I</td><td>Senderinfo anzeigen</td></tr>
+    <tr><td>E</td><td>Senderliste bearbeiten, importieren, exportieren</td></tr>
     <tr><td>F &nbsp;·&nbsp; Doppelklick</td><td>Vollbild an / aus</td></tr>
     <tr><td>R</td><td>Stream neu laden</td></tr>
     <tr><td>H &nbsp;·&nbsp; ?</td><td>Diese Hilfe</td></tr>
   </table>
   <p class="credits">
-    Senderliste: <a href="https://github.com/josxha/german-tv-m3u" target="_blank" rel="noopener">josxha/german-tv-m3u</a>
+    Senderlisten: <a href="https://github.com/josxha/german-tv-m3u" target="_blank" rel="noopener">josxha</a>,
+    <a href="https://github.com/jnk22/kodinerds-iptv" target="_blank" rel="noopener">Kodinerds</a>,
+    <a href="https://github.com/iptv-org/iptv" target="_blank" rel="noopener">iptv-org</a>,
+    <a href="https://github.com/Free-TV/IPTV" target="_blank" rel="noopener">Free-TV</a>
     · Wiedergabe: <a href="https://github.com/video-dev/hls.js" target="_blank" rel="noopener">hls.js</a>
     · Alle Streams gehören den jeweiligen Sendern.
   </p>
@@ -196,9 +297,18 @@
 // ---------------------------------------------------------------------------
 // Einstellungen
 // ---------------------------------------------------------------------------
-const PLAYLIST_URL =
-  new URLSearchParams(location.search).get('m3u') ||
-  'https://raw.githubusercontent.com/josxha/german-tv-m3u/main/german-tv.m3u';
+// Standardliste im Repo (Pflege: .claude/skills/senderliste/SKILL.md)
+const DEFAULT_URL = 'sender.m3u';
+// Quellen für den Listen-Editor (eigene kommen im Browser dazu)
+const SOURCES = [
+  { name: 'Öffentlich-rechtlich (Standard)', url: DEFAULT_URL },
+  { name: 'Deutsche Sender (josxha)', url: 'https://raw.githubusercontent.com/josxha/german-tv-m3u/main/german-tv.m3u' },
+  { name: 'Kodinerds – mit Regionalprogrammen', url: 'https://raw.githubusercontent.com/jnk22/kodinerds-iptv/master/iptv/clean/clean_tv.m3u' },
+  { name: 'iptv-org – Deutschland', url: 'https://iptv-org.github.io/iptv/countries/de.m3u' },
+  { name: 'Free-TV – Deutschland', url: 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_germany.m3u8' }
+];
+// ?m3u=… lädt einmalig eine andere Liste (hat Vorrang vor der eigenen Liste)
+let paramM3u = new URLSearchParams(location.search).get('m3u');
 const OSD_MS = 4000;        // Senderinfo-Einblendung
 const NUM_MS = 1500;        // Wartezeit bei Zifferneingabe
 const MENU_IDLE_MS = 20000; // Senderliste schließt sich nach Inaktivität
@@ -224,6 +334,9 @@ const store = {
 const esc = s => String(s).replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+const logoHtml = c => `<span class="logo">${c.logo
+  ? `<img src="${esc(c.logo)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>`;
+
 // ---------------------------------------------------------------------------
 // Zustand
 // ---------------------------------------------------------------------------
@@ -238,6 +351,7 @@ let muted = store.get('muted', false);
 let subsOn = store.get('subs', false);
 let toastTimer;
 let listItems = [];
+let usingMyList = false;
 
 // ---------------------------------------------------------------------------
 // M3U einlesen
@@ -270,27 +384,47 @@ function parseM3U(text) {
 }
 
 async function loadPlaylist() {
+  // eigene Liste aus dem Browser-Speicher
+  const mine = store.get('mylist', null);
+  usingMyList = !paramM3u && Array.isArray(mine) && mine.length > 0;
+  if (usingMyList) { startWith(mine); return; }
+
   showMsg('Senderliste wird geladen …');
+  const url = paramM3u || DEFAULT_URL;
   let text = null;
   try {
-    const res = await fetch(PLAYLIST_URL, { cache: 'no-cache' });
+    const res = await fetch(url, { cache: 'no-cache' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     text = await res.text();
-    store.set('m3u', text);
+    if (!paramM3u) store.set('m3u', text);
   } catch (err) {
-    text = store.get('m3u', null);
+    text = paramM3u ? null : store.get('m3u', null);
     if (!text) {
       showMsg('Senderliste konnte nicht geladen werden', String(err));
       return;
     }
   }
-  channels = parseM3U(text);
-  if (!channels.length) { showMsg('Die Senderliste ist leer'); return; }
-  renderList();
+  startWith(parseM3U(text));
+}
 
+function startWith(list) {
+  channels = list;
+  if (!channels.length) { showMsg('Die Senderliste ist leer', 'Mit E lässt sich eine eigene Liste anlegen'); return; }
+  renderList();
   const lastUrl = store.get('channel', null);
-  const start = Math.max(0, channels.findIndex(c => c.url === lastUrl));
-  tune(start);
+  cur = -1; prev = -1;
+  tune(Math.max(0, channels.findIndex(c => c.url === lastUrl)));
+}
+
+// neue Liste übernehmen, ohne den laufenden Sender zu unterbrechen
+function applyChannels(list) {
+  const url = channels[cur] && channels[cur].url;
+  channels = list;
+  renderList();
+  prev = -1;
+  const i = channels.findIndex(c => c.url === url);
+  if (i >= 0) { cur = i; markCurrent(); }
+  else { cur = -1; tune(0); }
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +525,7 @@ function showOsd() {
   if (!ch) return;
   const res = video.videoHeight ? video.videoHeight + 'p' : '';
   const ut = subTrackCount() ? (subsOn ? 'UT an' : 'UT') : '';
-  const sub = [ch.group, res, ut].filter(Boolean).join(' · ');
+  const sub = [usingMyList ? '' : ch.group, res, ut].filter(Boolean).join(' · ');
   $('osd').innerHTML =
     `<div class="num">${cur + 1}</div>` +
     (ch.logo ? `<img src="${esc(ch.logo)}" alt="" onerror="this.remove()">` : '') +
@@ -525,7 +659,8 @@ function renderList() {
   const ul = $('list');
   ul.innerHTML = '';
   listItems = [];
-  const hasGroups = new Set(channels.map(c => c.group)).size > 1;
+  // in der eigenen Liste bestimmt die Reihenfolge alles, Gruppen würden zerstückeln
+  const hasGroups = !usingMyList && new Set(channels.map(c => c.group)).size > 1;
   let lastGroup = null;
   channels.forEach((ch, i) => {
     if (hasGroups && ch.group !== lastGroup) {
@@ -537,9 +672,7 @@ function renderList() {
     }
     const li = document.createElement('li');
     li.innerHTML =
-      `<span class="n">${i + 1}</span>` +
-      `<span class="logo">${ch.logo ? `<img src="${esc(ch.logo)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>` +
-      `<span class="t">${esc(ch.name)}</span>`;
+      `<span class="n">${i + 1}</span>` + logoHtml(ch) + `<span class="t">${esc(ch.name)}</span>`;
     li.addEventListener('click', () => { closeMenu(); tune(i); });
     li.addEventListener('mouseenter', () => { sel = i; markSel(false); });
     ul.appendChild(li);
@@ -582,6 +715,270 @@ function moveSel(delta) {
 }
 
 // ---------------------------------------------------------------------------
+// Senderliste bearbeiten – eigene Liste im Browser-Speicher
+// ---------------------------------------------------------------------------
+const srcCache = new Map(); // URL → Promise mit geparsten Sendern
+let draft = [], dirty = false, srcItems = [], dragFrom = -1;
+
+const editorOpen = () => $('editor').classList.contains('open');
+const allSources = () => SOURCES.concat(store.get('sources', []).map(s => ({ ...s, custom: true })));
+const isUrl = s => /^https?:\/\/\S+$/i.test(s || '');
+const plain = c => ({ name: c.name, logo: c.logo || '', group: c.group || '', id: c.id || '', url: c.url });
+
+function loadSource(url) {
+  if (!srcCache.has(url)) {
+    const p = fetch(url, { cache: 'no-cache' })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(parseM3U);
+    p.catch(() => srcCache.delete(url)); // Fehler nicht dauerhaft merken
+    srcCache.set(url, p);
+  }
+  return srcCache.get(url);
+}
+
+function openEditor() {
+  closeMenu();
+  $('help').classList.remove('open');
+  draft = channels.map(plain); // Ausgangspunkt: die Liste, die gerade läuft
+  dirty = false;
+  fillSourceSelect();
+  renderMine();
+  $('editor').classList.add('open');
+  showSource();
+}
+
+function closeEditor(save) {
+  if (!save && dirty && !confirm('Änderungen an der Senderliste verwerfen?')) return;
+  $('editor').classList.remove('open');
+  if (save && dirty) saveMyList();
+}
+
+function saveMyList() {
+  // ein ?m3u=… in der Adresse würde die eigene Liste sonst beim nächsten Start überdecken
+  if (paramM3u) { paramM3u = null; history.replaceState(null, '', location.pathname); }
+  if (!draft.length) {
+    store.set('mylist', null);
+    showToast('Eigene Liste gelöscht – Standardliste aktiv');
+    loadPlaylist();
+    return;
+  }
+  store.set('mylist', draft);
+  usingMyList = true;
+  applyChannels(draft.map(plain));
+  showToast('Senderliste gespeichert');
+}
+
+function fillSourceSelect(selectUrl) {
+  const s = $('edSource');
+  const want = selectUrl || s.value || store.get('editorSource', SOURCES[0].url);
+  s.innerHTML = allSources().map(x => `<option value="${esc(x.url)}">${esc(x.name)}</option>`).join('');
+  s.value = want;
+  if (s.selectedIndex < 0) s.selectedIndex = 0;
+}
+
+async function showSource() {
+  const url = $('edSource').value;
+  store.set('editorSource', url);
+  $('edDelSource').hidden = !allSources().some(x => x.custom && x.url === url);
+  $('edGroup').hidden = true;
+  $('edSrcList').innerHTML = '<li class="info">Wird geladen …</li>';
+  srcItems = [];
+  let items;
+  try { items = await loadSource(url); }
+  catch (err) {
+    if ($('edSource').value === url)
+      $('edSrcList').innerHTML = `<li class="info">Konnte nicht geladen werden (${esc(err.message)})</li>`;
+    return;
+  }
+  if ($('edSource').value !== url) return; // inzwischen andere Quelle gewählt
+  srcItems = items;
+  const groups = [...new Set(items.map(c => c.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  const g = $('edGroup');
+  g.innerHTML = '<option value="">Alle Gruppen</option>' +
+    groups.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  g.hidden = groups.length < 2;
+  // bei internationalen Listen gleich die deutsche Gruppe wählen
+  g.value = groups.length > 1 && groups.find(x => /(^|[-\s])(DE|Germany|Deutschland)$/i.test(x)) || '';
+  renderSource();
+}
+
+function renderSource() {
+  const q = $('edSearch').value.trim().toLowerCase();
+  const g = $('edGroup').hidden ? '' : $('edGroup').value;
+  const have = new Set(draft.map(c => c.url));
+  const rows = [];
+  srcItems.forEach((c, i) => {
+    if (g && c.group !== g) return;
+    if (q && !c.name.toLowerCase().includes(q)) return;
+    const added = have.has(c.url);
+    rows.push(
+      `<li data-i="${i}"${added ? ' class="added"' : ''}>` + logoHtml(c) +
+      `<span class="t" title="${esc(c.url)}">${esc(c.name)}${c.group && !g ? `<small>${esc(c.group)}</small>` : ''}</span>` +
+      `<button class="icon" data-act="add" title="${added ? 'Schon in meiner Liste' : 'Hinzufügen'}"${added ? ' disabled' : ''}>${added ? '✓' : '+'}</button></li>`);
+  });
+  $('edSrcList').innerHTML = rows.join('') ||
+    `<li class="info">${srcItems.length ? 'Keine Treffer' : 'Diese Quelle enthält keine Sender'}</li>`;
+}
+
+function renderMine() {
+  $('edCount').textContent = draft.length === 1 ? '1 Sender' : draft.length + ' Sender';
+  const last = draft.length - 1;
+  $('edMyList').innerHTML = draft.map((c, i) =>
+    `<li draggable="true" data-i="${i}"><span class="n">${i + 1}</span>` + logoHtml(c) +
+    `<span class="t" title="${esc(c.url)}">${esc(c.name)}</span>` +
+    `<button class="icon" data-act="up" title="Nach oben"${i === 0 ? ' disabled' : ''}>↑</button>` +
+    `<button class="icon" data-act="down" title="Nach unten"${i === last ? ' disabled' : ''}>↓</button>` +
+    `<button class="icon" data-act="rename" title="Umbenennen">✎</button>` +
+    `<button class="icon" data-act="del" title="Entfernen">✕</button></li>`).join('') ||
+    '<li class="info">Noch keine Sender – links aus einer Quelle hinzufügen oder eine M3U-Datei importieren.</li>';
+}
+
+function changed() { dirty = true; renderMine(); renderSource(); }
+
+function addToDraft(list) {
+  const have = new Set(draft.map(c => c.url));
+  let n = 0;
+  for (const c of list) {
+    if (!c.url || have.has(c.url)) continue;
+    have.add(c.url);
+    draft.push(plain(c));
+    n++;
+  }
+  if (n) { changed(); const ul = $('edMyList'); ul.scrollTop = ul.scrollHeight; }
+  return n;
+}
+
+function moveDraft(from, to) {
+  if (from === to || to < 0 || to >= draft.length) return;
+  const [c] = draft.splice(from, 1);
+  draft.splice(to, 0, c);
+  changed();
+}
+
+function toM3U(list) {
+  const attr = (k, v) => v ? ` ${k}="${String(v).replace(/"/g, "'")}"` : '';
+  return '#EXTM3U\n' + list.map(c =>
+    `#EXTINF:-1${attr('tvg-id', c.id)}${attr('tvg-logo', c.logo)}${attr('group-title', c.group)},${c.name}\n${c.url}\n`
+  ).join('');
+}
+
+// Quellen
+$('edSource').addEventListener('change', () => { $('edSearch').value = ''; showSource(); });
+$('edGroup').addEventListener('change', renderSource);
+$('edSearch').addEventListener('input', renderSource);
+$('edSrcList').addEventListener('click', e => {
+  const li = e.target.closest('li[data-i]');
+  if (li && e.target.closest('button[data-act="add"]')) addToDraft([srcItems[+li.dataset.i]]);
+});
+$('edSrcList').addEventListener('dblclick', e => {
+  const li = e.target.closest('li[data-i]');
+  if (li) addToDraft([srcItems[+li.dataset.i]]);
+});
+$('edAddSource').addEventListener('click', () => {
+  const url = (prompt('Adresse (URL) einer M3U-Senderliste:') || '').trim();
+  if (!url) return;
+  if (!isUrl(url)) { alert('Das ist keine gültige http(s)-Adresse.'); return; }
+  const list = store.get('sources', []);
+  if (!allSources().some(s => s.url === url)) {
+    const name = (prompt('Name für diese Quelle:', new URL(url).hostname) || '').trim() || url;
+    list.push({ name, url });
+    store.set('sources', list);
+  }
+  fillSourceSelect(url);
+  $('edSearch').value = '';
+  showSource();
+});
+$('edDelSource').addEventListener('click', () => {
+  const url = $('edSource').value;
+  store.set('sources', store.get('sources', []).filter(s => s.url !== url));
+  srcCache.delete(url);
+  $('edSource').value = SOURCES[0].url;
+  fillSourceSelect(SOURCES[0].url);
+  showSource();
+});
+$('edAddUrl').addEventListener('click', () => {
+  const url = (prompt('Adresse (URL) des Streams, z. B. …/master.m3u8:') || '').trim();
+  if (!url) return;
+  if (!isUrl(url)) { alert('Das ist keine gültige http(s)-Adresse.'); return; }
+  const name = (prompt('Name des Senders:') || '').trim() || 'Eigener Sender';
+  if (!addToDraft([{ name, url }])) alert('Dieser Stream ist schon in der Liste.');
+});
+
+// Meine Sender
+const myList = $('edMyList');
+myList.addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]');
+  const li = e.target.closest('li[data-i]');
+  if (!b || !li) return;
+  const i = +li.dataset.i;
+  switch (b.dataset.act) {
+    case 'up':   moveDraft(i, i - 1); break;
+    case 'down': moveDraft(i, i + 1); break;
+    case 'del':  draft.splice(i, 1); changed(); break;
+    case 'rename': {
+      const n = (prompt('Name des Senders:', draft[i].name) || '').trim();
+      if (n && n !== draft[i].name) { draft[i].name = n; changed(); }
+      break;
+    }
+  }
+});
+const clearDrop = () => myList.querySelectorAll('.drop-before, .drop-after')
+  .forEach(x => x.classList.remove('drop-before', 'drop-after'));
+myList.addEventListener('dragstart', e => {
+  const li = e.target.closest('li[data-i]');
+  if (!li) return;
+  dragFrom = +li.dataset.i;
+  li.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(dragFrom));
+});
+myList.addEventListener('dragover', e => {
+  if (dragFrom < 0) return;
+  e.preventDefault();
+  const li = e.target.closest('li[data-i]');
+  clearDrop();
+  if (li && +li.dataset.i !== dragFrom)
+    li.classList.add(+li.dataset.i < dragFrom ? 'drop-before' : 'drop-after');
+});
+myList.addEventListener('drop', e => {
+  e.preventDefault();
+  const li = e.target.closest('li[data-i]');
+  const from = dragFrom;
+  dragFrom = -1;
+  if (from >= 0 && li) moveDraft(from, +li.dataset.i);
+});
+myList.addEventListener('dragend', () => { dragFrom = -1; clearDrop(); renderMine(); });
+
+// Kopfzeile
+$('edImport').addEventListener('click', () => $('edFile').click());
+$('edFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const list = parseM3U(await file.text());
+  if (!list.length) { showToast('Keine Sender in der Datei gefunden'); return; }
+  const n = addToDraft(list);
+  showToast(n ? `${n} Sender importiert` : 'Alle Sender waren schon in der Liste');
+});
+$('edExport').addEventListener('click', () => {
+  if (!draft.length) { showToast('Die Liste ist leer'); return; }
+  const blob = new Blob([toM3U(draft)], { type: 'audio/x-mpegurl' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'meine-sender.m3u';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$('edClear').addEventListener('click', () => {
+  if (draft.length && confirm('Alle Sender aus der Liste entfernen?')) { draft = []; changed(); }
+});
+$('edCancel').addEventListener('click', () => closeEditor(false));
+$('edSave').addEventListener('click', () => closeEditor(true));
+$('menuEdit').addEventListener('click', openEditor);
+
+// ---------------------------------------------------------------------------
 // Vollbild und erste Interaktion
 // ---------------------------------------------------------------------------
 function toggleFullscreen() {
@@ -613,6 +1010,14 @@ document.addEventListener('keydown', e => {
   firstGesture();
   const k = e.key;
 
+  // Listen-Editor offen: Tasten gehören den Eingabefeldern, nur Esc schließt
+  if (editorOpen()) {
+    // Esc im Suchfeld leert zuerst die Suche
+    const typing = e.target.id === 'edSearch' && e.target.value;
+    if (k === 'Escape' && !typing) { closeEditor(false); e.preventDefault(); }
+    return;
+  }
+
   // Hilfe offen: jede Taste schließt sie
   if ($('help').classList.contains('open')) {
     $('help').classList.remove('open');
@@ -634,6 +1039,7 @@ document.addEventListener('keydown', e => {
       case 'Escape':
       case 'Backspace':
       case 'ArrowLeft': closeMenu(); break;
+      case 'e': case 'E': openEditor(); break;
       default:
         if (/^[0-9]$/.test(k)) { closeMenu(); enterDigit(k); }
         else return;
@@ -666,6 +1072,7 @@ document.addEventListener('keydown', e => {
     case 'Subtitle':
     case 'ClosedCaptionToggle': toggleSubs(); break;
     case 'i': case 'I':        showOsd(); break;
+    case 'e': case 'E':        openEditor(); break;
     case 'f': case 'F':        if (!wasGesture) toggleFullscreen(); break;
     case 'r': case 'R':        startStream(); showOsd(); break;
     case 'h': case 'H': case '?': $('help').classList.add('open'); break;
