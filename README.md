@@ -16,12 +16,15 @@ Die Seite ist eine einzelne HTML-Datei ohne Build-Schritt und lässt sich in Chr
 | Rücktaste | Zum vorherigen Sender |
 | ← / → | Leiser / lauter |
 | M | Ton aus / an |
+| U | Untertitel an / aus |
 | I | Senderinfo anzeigen |
 | F · Doppelklick | Vollbild an / aus |
 | R | Stream neu laden |
 | H · ? | Hilfe |
 
-Der erste Tastendruck schaltet ins Vollbild und – falls der Browser Autoplay mit Ton blockiert – den Ton ein. Zuletzt gesehener Sender, Lautstärke und die Senderliste werden im Browser gespeichert.
+Der erste Tastendruck schaltet ins Vollbild und – falls der Browser Autoplay mit Ton blockiert – den Ton ein. Zuletzt gesehener Sender, Lautstärke, Untertitel-Einstellung und die Senderliste werden im Browser gespeichert.
+
+**Untertitel** bieten vor allem ARD, ZDF, 3sat, phoenix, KiKA und die Dritten an. Ob ein Sender welche hat, zeigt die Senderinfo mit „UT“ an.
 
 ## Als App installieren
 

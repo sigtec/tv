@@ -66,6 +66,21 @@
     display: none;
   }
 
+  /* Kurze Hinweise (z. B. Untertitel an/aus) */
+  #toast {
+    position: fixed; top: 4vh; left: 50%; transform: translateX(-50%);
+    font-size: 2.8vh; font-weight: 600; white-space: nowrap;
+    padding: 1vh 2vw; background: var(--panel); border-radius: 12px;
+    opacity: 0; transition: opacity .35s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+
+  /* Untertitel */
+  video::cue {
+    background: rgba(0, 0, 0, .75); color: #fff;
+    font-family: "Ubuntu", system-ui, sans-serif;
+  }
+
   /* Lautstärke */
   #vol {
     position: fixed; top: 50%; right: 4vw; transform: translateY(-50%);
@@ -146,6 +161,7 @@
 <div id="numentry"></div>
 <div id="vol"><div class="bar"></div></div>
 <div id="msg"></div>
+<div id="toast"></div>
 
 <nav id="menu">
   <header><span>Sender</span><small>↑↓ wählen · Enter · Esc</small></header>
@@ -161,6 +177,7 @@
     <tr><td>Rücktaste</td><td>Zum vorherigen Sender</td></tr>
     <tr><td>← / →</td><td>Leiser / lauter</td></tr>
     <tr><td>M</td><td>Ton aus / an</td></tr>
+    <tr><td>U</td><td>Untertitel an / aus</td></tr>
     <tr><td>I</td><td>Senderinfo anzeigen</td></tr>
     <tr><td>F &nbsp;·&nbsp; Doppelklick</td><td>Vollbild an / aus</td></tr>
     <tr><td>R</td><td>Stream neu laden</td></tr>
@@ -218,6 +235,8 @@ let numBuf = '';
 let needGesture = false;
 let volume = store.get('volume', 0.8);
 let muted = store.get('muted', false);
+let subsOn = store.get('subs', false);
+let toastTimer;
 let listItems = [];
 
 // ---------------------------------------------------------------------------
@@ -284,8 +303,8 @@ function tune(i) {
   cur = i;
   store.set('channel', channels[i].url);
   markCurrent();
-  showOsd();
   startStream();
+  showOsd();
 }
 
 function startStream() {
@@ -302,8 +321,17 @@ function startStream() {
   const isHls = /\.m3u8(\?|$)/i.test(ch.url) || !/\.(mp4|webm|ogg|mp3|aac)(\?|$)/i.test(ch.url);
 
   if (isHls && window.Hls && Hls.isSupported()) {
-    hls = new Hls({ capLevelToPlayerSize: true, maxBufferLength: 20, backBufferLength: 30 });
+    hls = new Hls({
+      capLevelToPlayerSize: true, maxBufferLength: 20, backBufferLength: 30,
+      subtitleDisplay: subsOn
+    });
     const thisChannel = cur;
+    // Untertitelspuren bekannt: gewünschten Zustand herstellen (die Sender
+    // markieren ihre Spur als DEFAULT, hls.js würde sie sonst immer einschalten)
+    hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
+      applySubs();
+      if ($('osd').classList.contains('show')) showOsd();
+    });
     hls.on(Hls.Events.ERROR, (_, data) => {
       if (!data.fatal || thisChannel !== cur) return;
       if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoverCount < 2) {
@@ -362,7 +390,8 @@ function showOsd() {
   const ch = channels[cur];
   if (!ch) return;
   const res = video.videoHeight ? video.videoHeight + 'p' : '';
-  const sub = [ch.group, res].filter(Boolean).join(' · ');
+  const ut = subTrackCount() ? (subsOn ? 'UT an' : 'UT') : '';
+  const sub = [ch.group, res, ut].filter(Boolean).join(' · ');
   $('osd').innerHTML =
     `<div class="num">${cur + 1}</div>` +
     (ch.logo ? `<img src="${esc(ch.logo)}" alt="" onerror="this.remove()">` : '') +
@@ -413,6 +442,61 @@ function toggleMute() {
   store.set('muted', muted);
   showVolume();
 }
+
+function showToast(text) {
+  $('toast').textContent = text;
+  $('toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('show'), 2000);
+}
+
+// ---------------------------------------------------------------------------
+// Untertitel
+// ---------------------------------------------------------------------------
+const isGerman = lang => /^(de|deu|ger)\b/i.test(lang || '');
+
+// Textspuren des Browsers (nur genutzt, wenn der Browser HLS selbst abspielt)
+const nativeSubTracks = () =>
+  Array.from(video.textTracks).filter(t => t.kind === 'subtitles' || t.kind === 'captions');
+
+function subTrackCount() {
+  return hls ? hls.subtitleTracks.length : nativeSubTracks().length;
+}
+
+// beste Spur wählen: deutsch und nicht nur „erzwungene“ Untertitel
+function pickSub(tracks, lang, forced) {
+  const i = tracks.findIndex(t => isGerman(lang(t)) && !forced(t));
+  return i >= 0 ? i : 0;
+}
+
+function applySubs() {
+  if (hls) {
+    const tracks = hls.subtitleTracks;
+    if (subsOn && tracks.length) {
+      hls.subtitleDisplay = true;
+      hls.subtitleTrack = pickSub(tracks, t => t.lang, t => t.forced);
+    } else {
+      hls.subtitleTrack = -1;
+      hls.subtitleDisplay = false;
+    }
+  } else {
+    const tracks = nativeSubTracks();
+    const want = subsOn && tracks.length ? pickSub(tracks, t => t.language, () => false) : -1;
+    tracks.forEach((t, i) => { t.mode = i === want ? 'showing' : 'disabled'; });
+  }
+}
+
+function toggleSubs() {
+  subsOn = !subsOn;
+  store.set('subs', subsOn);
+  applySubs();
+  if (!subsOn) showToast('Untertitel aus');
+  else if (subTrackCount()) showToast('Untertitel an');
+  else showToast('Untertitel an – dieser Sender bietet keine');
+  if ($('osd').classList.contains('show')) showOsd();
+}
+
+video.textTracks.addEventListener('addtrack', () => { if (!hls) applySubs(); });
 
 // ---------------------------------------------------------------------------
 // Zifferneingabe
@@ -578,9 +662,12 @@ document.addEventListener('keydown', e => {
     case ' ':                  openMenu(); break;
     case 'Backspace':          if (prev >= 0) tune(prev); break;
     case 'm': case 'M':        toggleMute(); break;
+    case 'u': case 'U':
+    case 'Subtitle':
+    case 'ClosedCaptionToggle': toggleSubs(); break;
     case 'i': case 'I':        showOsd(); break;
     case 'f': case 'F':        if (!wasGesture) toggleFullscreen(); break;
-    case 'r': case 'R':        showOsd(); startStream(); break;
+    case 'r': case 'R':        startStream(); showOsd(); break;
     case 'h': case 'H': case '?': $('help').classList.add('open'); break;
     case 'Escape':             break;
     default: return;
